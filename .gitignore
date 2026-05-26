@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Models
+models/*.pkl
+models/*.joblib
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
