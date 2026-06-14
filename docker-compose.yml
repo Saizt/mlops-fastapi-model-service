@@ -1,0 +1,12 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mlops-model-service:local
+    container_name: mlops-model-service-api
+    ports:
+      - "8000:8000"
+    environment:
+      - ENV=local
+    restart: unless-stopped
