@@ -1,7 +1,12 @@
+import time
+import numpy as np
+
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from fastapi.responses import Response
+
 from contextlib import asynccontextmanager
 from typing import List
 
-import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
@@ -20,6 +25,22 @@ class PredictionRequest(BaseModel):
 class PredictionResponse(BaseModel):
     prediction: int
     probability: float
+
+
+PREDICTION_REQUESTS = Counter(
+    "prediction_requests_total",
+    "Total number of prediction requests.",
+)
+
+PREDICTION_ERRORS = Counter(
+    "prediction_errors_total",
+    "Total number of prediction errors.",
+)
+
+PREDICTION_LATENCY = Histogram(
+    "prediction_latency_seconds",
+    "Prediction latency in seconds.",
+)
 
 
 @asynccontextmanager
@@ -43,8 +64,19 @@ def health_check() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/metrics")
+def metrics() -> Response:
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
+    )
+
+
 @app.post("/predict", response_model=PredictionResponse)
 def predict(request: PredictionRequest) -> PredictionResponse:
+    PREDICTION_REQUESTS.inc()
+    start_time = time.perf_counter()
+
     model = app.state.model
 
     try:
@@ -63,4 +95,9 @@ def predict(request: PredictionRequest) -> PredictionResponse:
         )
 
     except Exception as error:
+        PREDICTION_ERRORS.inc()
         raise HTTPException(status_code=500, detail=str(error)) from error
+
+    finally:
+        latency = time.perf_counter() - start_time
+        PREDICTION_LATENCY.observe(latency)
