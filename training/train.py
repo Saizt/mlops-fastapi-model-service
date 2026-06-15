@@ -4,6 +4,7 @@ from pathlib import Path
 import joblib
 import mlflow
 import mlflow.sklearn
+from mlflow.models import infer_signature
 from sklearn.datasets import load_breast_cancer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
@@ -93,13 +94,21 @@ def train_model(test_size: float, random_state: int, max_iter: int) -> float:
         predictions = model.predict(X_test)
         accuracy = accuracy_score(y_test, predictions)
 
+        signature = infer_signature(X_test, predictions)
+        input_example = X_test[:1]
+
         mlflow.log_metric("accuracy", accuracy)
 
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
         joblib.dump(model, MODEL_PATH)
 
         mlflow.log_artifact(str(MODEL_PATH), artifact_path="model_artifact")
-        mlflow.sklearn.log_model(model, name="model")
+        mlflow.sklearn.log_model(
+            sk_model=model,
+            name="model",
+            signature=signature,
+            input_example=input_example,
+        )
 
         print(f"Model saved to: {MODEL_PATH}")
         print(f"Test accuracy: {accuracy:.4f}")
