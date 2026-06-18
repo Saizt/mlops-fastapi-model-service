@@ -1,0 +1,102 @@
+{
+  "id": null,
+  "uid": "mlops-model-service",
+  "title": "MLOps Model Service",
+  "tags": ["mlops", "fastapi", "prometheus"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Prediction Requests",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {
+          "expr": "prediction_requests_total",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "Prometheus"}
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Prediction Requests per Second",
+      "gridPos": {"x": 6, "y": 0, "w": 18, "h": 8},
+      "targets": [
+        {
+          "expr": "rate(prediction_requests_total[1m])",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "Prometheus"}
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Average Prediction Latency",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "rate(prediction_latency_seconds_sum[1m]) / rate(prediction_latency_seconds_count[1m])",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "p95 Prediction Latency",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(prediction_latency_seconds_bucket[5m]))",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Prediction Errors",
+      "gridPos": {"x": 0, "y": 16, "w": 6, "h": 4},
+      "targets": [
+        {
+          "expr": "prediction_errors_total",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "Prometheus"}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Prediction Error Rate",
+      "gridPos": {"x": 6, "y": 16, "w": 18, "h": 8},
+      "targets": [
+        {
+          "expr": "rate(prediction_errors_total[1m])",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "Prometheus"}
+    }
+  ]
+}
