@@ -73,14 +73,37 @@ jobs:
                 0.6656, 0.7119, 0.2654, 0.4601, 0.1189
               ]
             }'
+          echo ""
 
       - name: Check Prometheus health
         run: |
-          curl -f http://127.0.0.1:9090/-/healthy
+          echo "Waiting for Prometheus to start..."
+          for i in {1..30}; do
+            if curl -f http://127.0.0.1:9090/-/healthy; then
+              echo "Prometheus is healthy"
+              exit 0
+            fi
+            echo "Prometheus not ready yet..."
+            sleep 2
+          done
+
+          echo "Prometheus failed to become healthy"
+          exit 1
 
       - name: Check Grafana health
         run: |
-          curl -f http://127.0.0.1:3000/api/health
+          echo "Waiting for Grafana to start..."
+          for i in {1..60}; do
+            if curl -f http://127.0.0.1:3000/api/health; then
+              echo "Grafana is healthy"
+              exit 0
+            fi
+            echo "Grafana not ready yet..."
+            sleep 2
+          done
+
+          echo "Grafana failed to become healthy"
+          exit 1
 
       - name: Show Docker Compose logs on failure
         if: failure()
