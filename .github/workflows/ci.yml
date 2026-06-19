@@ -105,6 +105,21 @@ jobs:
           echo "Grafana failed to become healthy"
           exit 1
 
+      - name: Check MLflow health
+        run: |
+          echo "Waiting for MLflow to start..."
+          for i in {1..60}; do
+            if curl -f http://127.0.0.1:5001; then
+              echo "MLflow is reachable"
+              exit 0
+            fi
+            echo "MLflow not ready yet..."
+            sleep 2
+          done
+
+          echo "MLflow failed to become reachable"
+          exit 1
+
       - name: Show Docker Compose logs on failure
         if: failure()
         run: |

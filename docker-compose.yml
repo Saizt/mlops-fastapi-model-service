@@ -2,7 +2,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/api/Dockerfile
     image: mlops-model-service:local
     container_name: mlops-model-service-api
     ports:
@@ -35,4 +35,16 @@ services:
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
     depends_on:
       - prometheus
+    restart: unless-stopped
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: docker/mlflow/Dockerfile
+    container_name: mlops-model-service-mlflow
+    ports:
+      - "5001:5000"
+    volumes:
+      - ./mlflow-data:/mlflow
+      - ./mlartifacts:/mlartifacts
     restart: unless-stopped
