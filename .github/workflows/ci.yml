@@ -28,13 +28,13 @@ jobs:
         run: |
           docker compose config
 
-      - name: Build MLflow image
+      - name: Build Docker Compose images
         run: |
-          docker compose build mlflow
+          docker compose build
 
-      - name: Start MLflow
+      - name: Start Docker Compose stack
         run: |
-          docker compose up -d mlflow
+          docker compose up -d
 
       - name: Check MLflow health
         run: |
@@ -50,23 +50,6 @@ jobs:
 
           echo "MLflow failed to become reachable"
           exit 1
-
-      - name: Train and register model
-        run: |
-          MLFLOW_TRACKING_URI=http://127.0.0.1:5001 python training/train.py \
-            --registered-model-name mlops-fastapi-classifier
-
-      - name: Run tests
-        run: |
-          python -m pytest
-
-      - name: Build Docker Compose images
-        run: |
-          docker compose build
-
-      - name: Start Docker Compose stack
-        run: |
-          docker compose up -d
 
       - name: Check API health
         run: |
@@ -98,6 +81,13 @@ jobs:
               ]
             }'
           echo ""
+
+      - name: Run tests
+        env:
+          MLFLOW_TRACKING_URI: http://127.0.0.1:5001
+          MLFLOW_MODEL_URI: models:/mlops-fastapi-classifier/1
+        run: |
+          python -m pytest
 
       - name: Check Prometheus health
         run: |

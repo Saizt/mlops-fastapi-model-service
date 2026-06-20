@@ -1,4 +1,32 @@
 services:
+  mlflow:
+    build:
+      context: .
+      dockerfile: docker/mlflow/Dockerfile
+    container_name: mlops-model-service-mlflow
+    ports:
+      - "5001:5000"
+    volumes:
+      - ./mlflow-data:/mlflow
+      - ./mlartifacts:/mlartifacts
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  trainer:
+    build:
+      context: .
+      dockerfile: docker/trainer/Dockerfile
+    container_name: mlops-model-service-trainer
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    depends_on:
+      mlflow:
+        condition: service_healthy
+
   api:
     build:
       context: .
@@ -12,7 +40,8 @@ services:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - MLFLOW_MODEL_URI=models:/mlops-fastapi-classifier/1
     depends_on:
-      - mlflow
+      trainer:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   prometheus:
@@ -39,16 +68,4 @@ services:
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
     depends_on:
       - prometheus
-    restart: unless-stopped
-
-  mlflow:
-    build:
-      context: .
-      dockerfile: docker/mlflow/Dockerfile
-    container_name: mlops-model-service-mlflow
-    ports:
-      - "5001:5000"
-    volumes:
-      - ./mlflow-data:/mlflow
-      - ./mlartifacts:/mlartifacts
     restart: unless-stopped
