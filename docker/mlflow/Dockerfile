@@ -9,4 +9,5 @@ CMD ["mlflow", "server", \
      "--port", "5000", \
      "--backend-store-uri", "sqlite:////mlflow/mlflow.db", \
      "--serve-artifacts", \
-     "--artifacts-destination", "/mlartifacts"]
+     "--artifacts-destination", "/mlartifacts", \
+     "--allowed-hosts", "*"]

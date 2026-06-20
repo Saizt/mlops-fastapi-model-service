@@ -2,12 +2,15 @@
 
 A small production-style ML service for practicing end-to-end MLOps workflows.
 
-The model is intentionally simple. The goal is not model performance, but the production workflow around a model:
+The model is intentionally simple. The goal is not model performance. The goal is the production workflow around a model:
 
 - repeatable training
 - MLflow experiment tracking
+- MLflow Tracking Server
+- MLflow Model Registry
 - FastAPI model serving
 - automated tests
+- GitHub Actions CI
 - Dockerized runtime
 - Docker Compose service orchestration
 - Prometheus metrics
@@ -21,11 +24,18 @@ The model is intentionally simple. The goal is not model performance, but the pr
 ```text
 training/train.py
   -> trains a simple sklearn model
-  -> saves models/model.joblib
-  -> logs run to MLflow
+  -> saves models/model.joblib locally
+  -> logs params, metrics, artifacts, model signature, and input example to MLflow
+  -> can optionally register a model version in MLflow Model Registry
+
+MLflow Tracking Server
+  -> stores tracking metadata in SQLite
+  -> stores artifacts in a local artifact directory
+  -> exposes experiment tracking UI and model registry UI
 
 FastAPI app
-  -> loads models/model.joblib
+  -> default mode: loads models/model.joblib
+  -> registry mode: loads a registered MLflow model version
   -> serves /health, /predict, /metrics
 
 Prometheus
@@ -35,6 +45,14 @@ Prometheus
 Grafana
   -> queries Prometheus
   -> displays provisioned dashboard
+
+GitHub Actions CI
+  -> installs dependencies
+  -> starts MLflow
+  -> trains and registers the model once
+  -> runs tests
+  -> builds Docker Compose services
+  -> verifies API, MLflow, Prometheus, and Grafana
 ```
 
 ---
@@ -45,22 +63,28 @@ Grafana
 mlops-model-service/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py              # FastAPI app, endpoints, Prometheus metrics
-│   └── model_loader.py      # Loads models/model.joblib
+│   ├── main.py                  # FastAPI app, endpoints, Prometheus metrics
+│   └── model_loader.py          # Loads local model or MLflow Registry model
+│
+├── docker/
+│   ├── api/
+│   │   └── Dockerfile           # FastAPI API image
+│   └── mlflow/
+│       └── Dockerfile           # MLflow Tracking Server image
 │
 ├── training/
-│   └── train.py             # Training script with MLflow tracking
+│   └── train.py                 # Training script with MLflow tracking/registration
 │
 ├── tests/
 │   ├── __init__.py
-│   └── test_api.py          # API tests
+│   └── test_api.py              # API tests
 │
 ├── models/
-│   └── model.joblib         # Local model artifact, ignored by Git
+│   └── model.joblib             # Local model artifact, ignored by Git
 │
 ├── monitoring/
 │   ├── prometheus/
-│   │   └── prometheus.yml   # Prometheus scrape config
+│   │   └── prometheus.yml       # Prometheus scrape config
 │   └── grafana/
 │       ├── provisioning/
 │       │   ├── datasources/
@@ -70,7 +94,10 @@ mlops-model-service/
 │       └── dashboards/
 │           └── mlops-model-service.json
 │
-├── Dockerfile
+├── .github/
+│   └── workflows/
+│       └── ci.yml               # GitHub Actions CI workflow
+│
 ├── docker-compose.yml
 ├── requirements.txt
 ├── .dockerignore
@@ -94,6 +121,20 @@ It:
 4. calculates accuracy
 5. saves the local model to `models/model.joblib`
 6. logs params, metrics, artifact, model signature, and input example to MLflow
+7. optionally registers the model in MLflow Model Registry
+
+Example with default local MLflow tracking:
+
+```bash
+python training/train.py
+```
+
+Example with MLflow Tracking Server and Model Registry:
+
+```bash
+MLFLOW_TRACKING_URI=http://127.0.0.1:5001 python training/train.py \
+  --registered-model-name mlops-fastapi-classifier
+```
 
 ---
 
@@ -113,40 +154,92 @@ Custom metrics:
 - `prediction_errors_total`
 - `prediction_latency_seconds`
 
+The model is loaded once during application startup and reused for prediction requests.
+
 ---
 
 ### `app/model_loader.py`
 
-Loads the saved model from:
+Loads the model in one of two modes.
+
+Default local mode:
 
 ```text
 models/model.joblib
 ```
 
-The API loads the model once during startup and reuses it for prediction requests.
+MLflow Registry mode:
 
----
+```text
+models:/mlops-fastapi-classifier/1
+```
 
-### `tests/test_api.py`
+The mode is controlled by environment variables:
 
-Tests the API contract:
+```text
+MLFLOW_TRACKING_URI=http://mlflow:5000
+MLFLOW_MODEL_URI=models:/mlops-fastapi-classifier/1
+```
 
-- `/health` returns `200`
-- `/predict` works with valid input
-- `/predict` rejects missing features
-- `/predict` rejects wrong feature length
+If `MLFLOW_MODEL_URI` is not set, the API loads the local model file.
+
+If `MLFLOW_MODEL_URI` is set, the API loads the model from MLflow Registry. If the registered model version does not exist, the API fails fast instead of silently falling back to the local model.
 
 ---
 
 ### `docker-compose.yml`
 
-Runs the local stack:
+Runs the local production-like stack:
 
-- API
+- FastAPI API
+- MLflow Tracking Server
 - Prometheus
 - Grafana
 
-This is the main entry point for the full local production-like environment.
+Important Docker networking detail:
+
+From your laptop, MLflow is available at:
+
+```text
+http://127.0.0.1:5001
+```
+
+From inside Docker Compose, the API reaches MLflow at:
+
+```text
+http://mlflow:5000
+```
+
+`mlflow` is the Docker Compose service name.
+
+---
+
+### `.github/workflows/ci.yml`
+
+Runs CI on push and pull request.
+
+Current CI workflow:
+
+1. checks out the repository
+2. installs Python dependencies
+3. validates Docker Compose config
+4. builds and starts MLflow
+5. trains and registers the model once
+6. runs API tests
+7. builds Docker Compose services
+8. starts the full stack
+9. checks API health
+10. checks API prediction
+11. checks Prometheus health
+12. checks Grafana health
+13. prints Docker Compose logs on failure
+14. stops Docker Compose
+
+This validates the important production-style path:
+
+```text
+training -> MLflow Registry -> Dockerized API -> prediction endpoint
+```
 
 ---
 
@@ -179,7 +272,7 @@ Expected output should contain:
 
 ---
 
-## 5. Train the model
+## 5. Train the model locally
 
 Default training run:
 
@@ -199,15 +292,21 @@ This creates or overwrites:
 models/model.joblib
 ```
 
-The model file is ignored by Git. In real production, model artifacts usually live in artifact storage or a model registry.
+The model file is ignored by Git.
 
 ---
 
-## 6. MLflow
+## 6. MLflow local tracking mode
 
-The training script logs each run to MLflow.
+If no `MLFLOW_TRACKING_URI` is set, MLflow uses local file-based tracking.
 
-Start MLflow UI:
+Run:
+
+```bash
+python training/train.py
+```
+
+Then start local MLflow UI:
 
 ```bash
 mlflow ui
@@ -229,7 +328,71 @@ This folder is ignored by Git.
 
 ---
 
-## 7. Run the API locally
+## 7. MLflow Tracking Server mode
+
+The Docker Compose stack includes an MLflow Tracking Server.
+
+Start only MLflow:
+
+```bash
+docker compose up -d --build mlflow
+```
+
+Open:
+
+```text
+http://127.0.0.1:5001
+```
+
+Train and register a model version:
+
+```bash
+MLFLOW_TRACKING_URI=http://127.0.0.1:5001 python training/train.py \
+  --registered-model-name mlops-fastapi-classifier
+```
+
+Then open MLflow UI and go to:
+
+```text
+Model training -> Models -> mlops-fastapi-classifier
+```
+
+You should see a registered model version.
+
+---
+
+## 8. MLflow storage layout
+
+The Dockerized MLflow server uses:
+
+```text
+mlflow-data/      # SQLite backend database for metadata
+mlartifacts/      # artifact storage for model files and run artifacts
+```
+
+These folders are ignored by Git.
+
+Metadata includes:
+
+- experiments
+- runs
+- params
+- metrics
+- tags
+- registered models
+- model versions
+
+Artifacts include:
+
+- model files
+- MLmodel metadata
+- input examples
+- environment files
+- logged artifacts
+
+---
+
+## 9. Run the API locally without Docker
 
 Start FastAPI without Docker:
 
@@ -250,9 +413,97 @@ Metrics:
 http://127.0.0.1:8000/metrics
 ```
 
+This uses the local model file by default:
+
+```text
+models/model.joblib
+```
+
 ---
 
-## 8. Example prediction request
+## 10. Run the API locally with an MLflow Registry model
+
+Start MLflow and make sure a registered model version exists:
+
+```bash
+docker compose up -d --build mlflow
+
+MLFLOW_TRACKING_URI=http://127.0.0.1:5001 python training/train.py \
+  --registered-model-name mlops-fastapi-classifier
+```
+
+Then start the API locally with registry loading:
+
+```bash
+MLFLOW_TRACKING_URI=http://127.0.0.1:5001 \
+MLFLOW_MODEL_URI=models:/mlops-fastapi-classifier/1 \
+uvicorn app.main:app --reload
+```
+
+This tells the API to load model version `1` from MLflow Registry.
+
+---
+
+## 11. Run the full Docker Compose stack
+
+For the current production-style workflow, first start MLflow and register the model:
+
+```bash
+docker compose down
+
+docker compose up -d --build mlflow
+
+MLFLOW_TRACKING_URI=http://127.0.0.1:5001 python training/train.py \
+  --registered-model-name mlops-fastapi-classifier
+```
+
+Then start the full stack:
+
+```bash
+docker compose up -d --build
+```
+
+Check services:
+
+```bash
+docker compose ps
+```
+
+Useful URLs:
+
+```text
+FastAPI:
+http://127.0.0.1:8000
+
+MLflow:
+http://127.0.0.1:5001
+
+Prometheus:
+http://127.0.0.1:9090
+
+Prometheus targets:
+http://127.0.0.1:9090/targets
+
+Grafana:
+http://127.0.0.1:3000
+```
+
+Grafana credentials for local development:
+
+```text
+username: admin
+password: admin
+```
+
+Stop everything:
+
+```bash
+docker compose down
+```
+
+---
+
+## 12. Example prediction request
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/predict" \
@@ -282,7 +533,7 @@ The exact probability may vary.
 
 ---
 
-## 9. Run tests
+## 13. Run tests
 
 ```bash
 python -m pytest
@@ -296,92 +547,25 @@ Expected:
 
 ---
 
-## 10. Docker
+## 14. Docker commands
 
 Build the API image manually:
 
 ```bash
-docker build -t mlops-model-service:local .
+docker build -f docker/api/Dockerfile -t mlops-model-service:local .
 ```
 
-Run the API container manually:
+Run the API container manually with local model loading:
 
 ```bash
 docker run --rm -p 8000:8000 mlops-model-service:local
 ```
 
-Open:
-
-```text
-http://127.0.0.1:8000/health
-```
-
-Stop with `Control + C`.
+The full stack should usually be run with Docker Compose instead of manual Docker commands.
 
 ---
 
-## 11. Docker Compose stack
-
-Start API, Prometheus, and Grafana:
-
-```bash
-docker compose up --build
-```
-
-Start in background:
-
-```bash
-docker compose up -d --build
-```
-
-Stop everything:
-
-```bash
-docker compose down
-```
-
-Show running services:
-
-```bash
-docker compose ps
-```
-
-Follow logs:
-
-```bash
-docker compose logs -f
-```
-
----
-
-## 12. Local service URLs
-
-When Docker Compose is running:
-
-```text
-FastAPI:
-http://127.0.0.1:8000
-
-Prometheus:
-http://127.0.0.1:9090
-
-Prometheus targets:
-http://127.0.0.1:9090/targets
-
-Grafana:
-http://127.0.0.1:3000
-```
-
-Grafana credentials for local development:
-
-```text
-username: admin
-password: admin
-```
-
----
-
-## 13. Monitoring flow
+## 15. Monitoring flow
 
 ```text
 FastAPI app
@@ -412,7 +596,7 @@ http://api:8000
 
 ---
 
-## 14. Prometheus config
+## 16. Prometheus config
 
 Prometheus config lives here:
 
@@ -441,7 +625,7 @@ Meaning:
 
 ---
 
-## 15. Grafana provisioning
+## 17. Grafana provisioning
 
 Grafana is configured from files, not manual UI clicks.
 
@@ -454,37 +638,27 @@ Docker Compose mounts:
 
 This means Grafana reads local configuration files when it starts.
 
-### Datasource
+Datasource:
 
 ```text
 monitoring/grafana/provisioning/datasources/prometheus.yml
 ```
 
-Creates the Prometheus datasource automatically.
-
-### Dashboard provider
+Dashboard provider:
 
 ```text
 monitoring/grafana/provisioning/dashboards/dashboards.yml
 ```
 
-Tells Grafana to load dashboards from:
-
-```text
-/var/lib/grafana/dashboards
-```
-
-### Dashboard JSON
+Dashboard JSON:
 
 ```text
 monitoring/grafana/dashboards/mlops-model-service.json
 ```
 
-Defines the actual dashboard panels and PromQL queries.
-
 ---
 
-## 16. Useful PromQL queries
+## 18. Useful PromQL queries
 
 Total prediction requests:
 
@@ -526,9 +700,9 @@ rate(prediction_errors_total[1m])
 
 ---
 
-## 17. Generate test traffic
+## 19. Generate test traffic
 
-Run this while Docker Compose is running:
+Run this while the API is running:
 
 ```bash
 for i in {1..30}; do
@@ -544,6 +718,7 @@ for i in {1..30}; do
         0.6656, 0.7119, 0.2654, 0.4601, 0.1189
       ]
     }' > /dev/null
+
 done
 ```
 
@@ -553,7 +728,7 @@ Rate-based panels may need 5-10 seconds before showing values.
 
 ---
 
-## 18. Debugging
+## 20. Debugging
 
 ### API does not start
 
@@ -562,18 +737,46 @@ docker compose ps
 docker compose logs api
 ```
 
-Check that the model exists:
+Common causes:
 
-```bash
-ls -lh models
+- registered model version does not exist
+- `MLFLOW_TRACKING_URI` points to the wrong address
+- MLflow server is not ready
+- model dependency versions differ between training and serving
+
+For Docker Compose, the API should use:
+
+```text
+MLFLOW_TRACKING_URI=http://mlflow:5000
 ```
 
-If missing:
+not:
 
-```bash
-python training/train.py
-docker compose up --build
+```text
+MLFLOW_TRACKING_URI=http://127.0.0.1:5001
 ```
+
+Inside Docker, `127.0.0.1` means the API container itself, not your laptop.
+
+---
+
+### MLflow returns 403
+
+If MLflow returns:
+
+```text
+Invalid Host header - possible DNS rebinding attack detected
+```
+
+make sure the MLflow server is started with an allowed hosts setting suitable for local Docker Compose development.
+
+For this local learning project, the MLflow Dockerfile uses:
+
+```text
+--allowed-hosts *
+```
+
+This is acceptable for local development, but should be restricted in a real production deployment.
 
 ---
 
@@ -689,17 +892,21 @@ If Prometheus does not have data, check:
 
 ---
 
-## 19. Common commands
+## 21. Common commands
 
 ```bash
 # install dependencies
 pip install -r requirements.txt
 
-# train model
+# train model locally
 python training/train.py
 
-# run MLflow UI
-mlflow ui
+# start MLflow server
+ docker compose up -d --build mlflow
+
+# train and register model in MLflow server
+MLFLOW_TRACKING_URI=http://127.0.0.1:5001 python training/train.py \
+  --registered-model-name mlops-fastapi-classifier
 
 # run API locally
 uvicorn app.main:app --reload
@@ -707,52 +914,48 @@ uvicorn app.main:app --reload
 # run tests
 python -m pytest
 
-# build Docker image
-docker build -t mlops-model-service:local .
+# build API Docker image
+ docker build -f docker/api/Dockerfile -t mlops-model-service:local .
 
 # run full stack
-docker compose up --build
-
-# run full stack in background
-docker compose up -d --build
+ docker compose up -d --build
 
 # stop full stack
-docker compose down
+ docker compose down
 
 # follow logs
-docker compose logs -f
+ docker compose logs -f
 ```
 
 ---
 
-## 20. Current limitations
+## 22. Current limitations
 
 This is a learning project, not a full production deployment.
 
 Current limitations:
 
-- model artifact is copied into the Docker image
-- MLflow runs locally, not as a remote tracking server
-- no model registry workflow yet
-- no CI/CD yet
-- no cloud deployment yet
+- MLflow uses local SQLite instead of Postgres/RDS
+- MLflow artifacts use local filesystem instead of S3/object storage
+- the Docker Compose MLflow server uses permissive local `--allowed-hosts *`
 - no authentication
 - no persistent Grafana database
 - no alerting rules yet
+- no cloud deployment yet
+- training is still run from the host machine, not from a dedicated training container
+- API currently loads a fixed registered model version instead of a movable alias like `champion`
 
 These limitations are intentional for now. The project is being built incrementally.
 
 ---
 
-## 21. Next planned steps
+## 23. Next planned steps
 
 Planned improvements:
 
-1. Add GitHub Actions CI.
-2. Run tests automatically on push.
-3. Add linting and formatting.
-4. Build Docker image in CI.
-5. Add MLflow tracking server as a service.
-6. Add model registry workflow.
-7. Add AWS deployment.
-8. Add alerting rules.
+1. Finish CI validation for registry-to-serving workflow.
+2. Add alerting rules.
+3. Consider model alias workflow, for example `champion`.
+4. Consider training container.
+5. Consider AWS deployment.
+6. Consider replacing local SQLite/artifacts with RDS/S3-style storage.

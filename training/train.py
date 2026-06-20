@@ -1,9 +1,10 @@
 import argparse
-from pathlib import Path
-
 import joblib
 import mlflow
 import mlflow.sklearn
+
+from typing import Optional
+from pathlib import Path
 from mlflow.models import infer_signature
 from sklearn.datasets import load_breast_cancer
 from sklearn.linear_model import LogisticRegression
@@ -46,10 +47,22 @@ def parse_args() -> argparse.Namespace:
         help="Maximum iterations for LogisticRegression.",
     )
 
+    parser.add_argument(
+        "--registered-model-name",
+        type=str,
+        default=None,
+        help="Optional MLflow registered model name.",
+    )
+
     return parser.parse_args()
 
 
-def train_model(test_size: float, random_state: int, max_iter: int) -> float:
+def train_model(
+    test_size: float,
+    random_state: int,
+    max_iter: int,
+    registered_model_name: Optional[str] = None,
+) -> float:
     """
     Train a simple classifier, save it locally, and log the run to MLflow.
 
@@ -88,6 +101,7 @@ def train_model(test_size: float, random_state: int, max_iter: int) -> float:
         mlflow.log_param("test_size", test_size)
         mlflow.log_param("random_state", random_state)
         mlflow.log_param("max_iter", max_iter)
+        mlflow.log_param("registered_model_name", registered_model_name)
 
         model.fit(X_train, y_train)
 
@@ -108,6 +122,7 @@ def train_model(test_size: float, random_state: int, max_iter: int) -> float:
             name="model",
             signature=signature,
             input_example=input_example,
+            registered_model_name=registered_model_name,
         )
 
         print(f"Model saved to: {MODEL_PATH}")
@@ -123,4 +138,5 @@ if __name__ == "__main__":
         test_size=args.test_size,
         random_state=args.random_state,
         max_iter=args.max_iter,
+        registered_model_name=args.registered_model_name,
     )

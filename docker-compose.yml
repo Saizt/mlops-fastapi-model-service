@@ -9,6 +9,10 @@ services:
       - "8000:8000"
     environment:
       - ENV=local
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_MODEL_URI=models:/mlops-fastapi-classifier/1
+    depends_on:
+      - mlflow
     restart: unless-stopped
 
   prometheus:

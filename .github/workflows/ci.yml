@@ -24,17 +24,41 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Train model artifact
+      - name: Validate Docker Compose config
         run: |
-          python training/train.py
+          docker compose config
+
+      - name: Build MLflow image
+        run: |
+          docker compose build mlflow
+
+      - name: Start MLflow
+        run: |
+          docker compose up -d mlflow
+
+      - name: Check MLflow health
+        run: |
+          echo "Waiting for MLflow to start..."
+          for i in {1..60}; do
+            if curl -f http://127.0.0.1:5001; then
+              echo "MLflow is reachable"
+              exit 0
+            fi
+            echo "MLflow not ready yet..."
+            sleep 2
+          done
+
+          echo "MLflow failed to become reachable"
+          exit 1
+
+      - name: Train and register model
+        run: |
+          MLFLOW_TRACKING_URI=http://127.0.0.1:5001 python training/train.py \
+            --registered-model-name mlops-fastapi-classifier
 
       - name: Run tests
         run: |
           python -m pytest
-
-      - name: Validate Docker Compose config
-        run: |
-          docker compose config
 
       - name: Build Docker Compose images
         run: |
@@ -47,7 +71,7 @@ jobs:
       - name: Check API health
         run: |
           echo "Waiting for API to start..."
-          for i in {1..30}; do
+          for i in {1..60}; do
             if curl -f http://127.0.0.1:8000/health; then
               echo "API is healthy"
               exit 0
@@ -103,21 +127,6 @@ jobs:
           done
 
           echo "Grafana failed to become healthy"
-          exit 1
-
-      - name: Check MLflow health
-        run: |
-          echo "Waiting for MLflow to start..."
-          for i in {1..60}; do
-            if curl -f http://127.0.0.1:5001; then
-              echo "MLflow is reachable"
-              exit 0
-            fi
-            echo "MLflow not ready yet..."
-            sleep 2
-          done
-
-          echo "MLflow failed to become reachable"
           exit 1
 
       - name: Show Docker Compose logs on failure
